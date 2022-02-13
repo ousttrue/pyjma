@@ -1,42 +1,17 @@
-from typing import List, Any
+import json
+import pathlib
+from typing import List
 import datetime
 import asyncio
-import aiohttp
 import logging
 import ctypes
-from pydear import glo
+import jma
 from pydear.utils import dockspace
 from pydear import imgui as ImGui
 logger = logging.getLogger(__name__)
 
-DATE_FORMAT = '%Y%m%d%H%M%S'
-
-AMEDAS_STALBE_URL = 'https://www.jma.go.jp/bosai/amedas/const/amedastable.json'
-TIMES_URL = 'https://www.jma.go.jp/bosai/himawari/data/satimg/targetTimes_fd.json'
-
-
-def to_datetime(src: str) -> datetime.datetime:
-    # {"basetime" : "20220211225000", "validtime" : "20220211225000"}
-    assert(len(src) == 14)
-    year = src[0:4]
-    month = src[4:6]
-    day = src[6:8]
-    hour = src[8:10]
-    minute = src[10:12]
-    second = src[12:14]
-    return datetime.datetime(year=int(year), month=int(month), day=int(day), hour=int(hour), minute=int(minute), second=int(second))
-
 # ひまわり
 # https://www.jma.go.jp/bosai/himawari/data/satimg/{basetime}/fd/{validtime}/{band}/{prod}/{z}/{x}/{y}.jpg
-
-
-async def get_json_async(url: str):
-    logger.info(f'get {url}...')
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            value = await response.json()
-            logger.debug(f'{url} done')
-            return value
 
 
 def table_selector(headers: List[str], row_it, col_it, last_selected):
@@ -79,7 +54,7 @@ def table_selector(headers: List[str], row_it, col_it, last_selected):
 
 
 class Gui(dockspace.DockingGui):
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self, loop: asyncio.AbstractEventLoop, cache_dir: pathlib.Path) -> None:
         from pydear.utils.loghandler import ImGuiLogHandler
         log_handler = ImGuiLogHandler()
         log_handler.setFormatter(logging.Formatter(
@@ -100,9 +75,13 @@ class Gui(dockspace.DockingGui):
 
         self.times = []
         self.time_selected = None
+        self.area = None
         self.stable = None
         self.stable_selected = None
         self.amedas = None
+
+        import jma.http_getter
+        self.getter = jma.http_getter.HttpGetter(loop, cache_dir)
         self.loop.create_task(self.start_async())
 
     def _setup_font(self):
@@ -112,11 +91,14 @@ class Gui(dockspace.DockingGui):
         io.Fonts.Build()
 
     async def start_async(self):
-        stable = await get_json_async(AMEDAS_STALBE_URL)
+        area = await self.getter.get_json_async(jma.AREA_URL)
+        self.area = jma.area_tree(area)
+
+        stable = await self.getter.get_json_async(jma.AMEDAS_STALBE_URL)
         self.stable = stable
 
-        times = await get_json_async(TIMES_URL)
-        self.times = [to_datetime(t['validtime']) for t in times]
+        times = await self.getter.get_json_async(jma.HIMAWARI_TIMES_URL)
+        self.times = [jma.to_datetime(t['validtime']) for t in times]
 
     def select_stable(self, p_open: ctypes.Array):
         if ImGui.Begin('stable', p_open):
@@ -139,8 +121,8 @@ class Gui(dockspace.DockingGui):
         ImGui.End()
 
     async def select_time_async(self, time: datetime.datetime):
-        url = f'https://www.jma.go.jp/bosai/amedas/data/map/{time.strftime(DATE_FORMAT)}.json'
-        self.amedas = await get_json_async(url)
+        url = f'https://www.jma.go.jp/bosai/amedas/data/map/{time.strftime(jma.DATE_FORMAT)}.json'
+        self.amedas = await self.getter.get_json_async(url)
 
     def show_amedas(self, p_open: ctypes.Array):
         if ImGui.Begin('amedas', p_open):
@@ -155,7 +137,7 @@ def main():
     from pydear.utils import glfw_app
     app = glfw_app.GlfwApp('pyjma')
 
-    gui = Gui(app.loop)
+    gui = Gui(app.loop, pathlib.Path('.') / 'cache')
     from pydear.backends import impl_glfw
     impl_glfw = impl_glfw.ImplGlfwInput(app.window)
     while app.clear():
