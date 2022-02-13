@@ -38,6 +38,8 @@ def area_tree(area) -> List[AreaNode]:
             node = AreaNode(k, v['name'])
             node_map[k] = node
             for child in v.get('children', []):
+                if child == k:
+                    continue
                 node.children.append(node_map[child])
             nodes.append(node)
         return nodes

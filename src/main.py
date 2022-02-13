@@ -1,6 +1,5 @@
-import json
+from typing import List, Optional
 import pathlib
-from typing import List
 import datetime
 import asyncio
 import logging
@@ -53,6 +52,54 @@ def table_selector(headers: List[str], row_it, col_it, last_selected):
     return selected
 
 
+def area_selector(centers: List[jma.AreaNode], last_selected) -> Optional[str]:
+    flags = (
+        ImGui.ImGuiTableFlags_.BordersV
+        | ImGui.ImGuiTableFlags_.BordersOuterH
+        | ImGui.ImGuiTableFlags_.Resizable
+        | ImGui.ImGuiTableFlags_.RowBg
+        | ImGui.ImGuiTableFlags_.NoBordersInBody
+    )
+    selected = [None]
+    if ImGui.BeginTable("jsontree_table", 2, flags):
+        # header
+        ImGui.TableSetupColumn('name')
+        ImGui.TableSetupColumn('key')
+        ImGui.TableHeadersRow()
+
+        def area_node(node: jma.AreaNode, default_open=False):
+            ImGui.TableNextRow()
+            # name
+            ImGui.TableNextColumn()
+            tree_flag = ImGui.ImGuiTreeNodeFlags_.OpenOnArrow | ImGui.ImGuiTreeNodeFlags_.OpenOnDoubleClick | ImGui.ImGuiTreeNodeFlags_.SpanAvailWidth
+            if node.key == last_selected:
+                tree_flag |= ImGui.ImGuiTreeNodeFlags_.Selected
+            if not node.children:
+                tree_flag |= ImGui.ImGuiTreeNodeFlags_.Leaf
+                tree_flag |= ImGui.ImGuiTreeNodeFlags_.Bullet
+            if default_open:
+                ImGui.SetNextTreeNodeOpen(True, ImGui.ImGuiCond_.FirstUseEver)
+            open = ImGui.TreeNodeEx(node.name, tree_flag)
+            if ImGui.IsItemClicked() and not ImGui.IsItemToggledOpen():
+                selected[0] = node.key
+                logger.debug(f'selected: {node.key}')
+            # ImGui.SetItemAllowOverlap()
+            # key
+            ImGui.TableNextColumn()
+            ImGui.TextUnformatted(node.key)
+
+            if open:
+                for child in node.children:
+                    area_node(child)
+                ImGui.TreePop()
+
+        for node in centers:
+            area_node(node, True)
+
+        ImGui.EndTable()
+    return selected[0]
+
+
 class Gui(dockspace.DockingGui):
     def __init__(self, loop: asyncio.AbstractEventLoop, cache_dir: pathlib.Path) -> None:
         from pydear.utils.loghandler import ImGuiLogHandler
@@ -64,8 +111,8 @@ class Gui(dockspace.DockingGui):
         docks = [
             dockspace.Dock('log',
                            (ctypes.c_bool * 1)(True), log_handler.draw),
-            dockspace.Dock('stable',
-                           (ctypes.c_bool * 1)(True), self.select_stable),
+            dockspace.Dock('area',
+                           (ctypes.c_bool * 1)(True), self.select_area),
             dockspace.Dock('times',
                            (ctypes.c_bool * 1)(True), self.select_time),
             dockspace.Dock('amedas',
@@ -76,6 +123,7 @@ class Gui(dockspace.DockingGui):
         self.times = []
         self.time_selected = None
         self.area = None
+        self.area_selected = None
         self.stable = None
         self.stable_selected = None
         self.amedas = None
@@ -100,13 +148,12 @@ class Gui(dockspace.DockingGui):
         times = await self.getter.get_json_async(jma.HIMAWARI_TIMES_URL)
         self.times = [jma.to_datetime(t['validtime']) for t in times]
 
-    def select_stable(self, p_open: ctypes.Array):
-        if ImGui.Begin('stable', p_open):
-            if isinstance(self.stable, dict):
-                selected = table_selector(
-                    ['key', 'value'], [(k, (k, v)) for k, v in self.stable.items()], iter, self.stable_selected)
+    def select_area(self, p_open: ctypes.Array):
+        if ImGui.Begin('area', p_open):
+            if self.area:
+                selected = area_selector(self.area, self.area_selected)
                 if selected:
-                    self.stable_selected = selected
+                    self.area_selected = selected
         ImGui.End()
 
     def select_time(self, p_open: ctypes.Array):
