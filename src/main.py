@@ -1,4 +1,5 @@
-from typing import List, Optional
+import json
+from typing import List, Optional, Tuple
 import pathlib
 import datetime
 import asyncio
@@ -22,7 +23,7 @@ def table_selector(headers: List[str], row_it, col_it, last_selected):
         | ImGui.ImGuiTableFlags_.NoBordersInBody
     )
     selected = None
-    if ImGui.BeginTable("jsontree_table", len(headers), flags):
+    if ImGui.BeginTable("table_selector", len(headers), flags):
         # header
         for header in headers:
             ImGui.TableSetupColumn(header)
@@ -52,7 +53,7 @@ def table_selector(headers: List[str], row_it, col_it, last_selected):
     return selected
 
 
-def area_selector(centers: List[jma.AreaNode], last_selected) -> Optional[str]:
+def area_selector(centers: List[jma.AreaNode], last_selected) -> Optional[Tuple[jma.AreaNode, ...]]:
     flags = (
         ImGui.ImGuiTableFlags_.BordersV
         | ImGui.ImGuiTableFlags_.BordersOuterH
@@ -60,19 +61,20 @@ def area_selector(centers: List[jma.AreaNode], last_selected) -> Optional[str]:
         | ImGui.ImGuiTableFlags_.RowBg
         | ImGui.ImGuiTableFlags_.NoBordersInBody
     )
-    selected = [None]
-    if ImGui.BeginTable("jsontree_table", 2, flags):
+    selected: List[Tuple[jma.AreaNode, ...]] = [()]
+    if ImGui.BeginTable("area_selector", 2, flags):
         # header
         ImGui.TableSetupColumn('name')
         ImGui.TableSetupColumn('key')
         ImGui.TableHeadersRow()
 
-        def area_node(node: jma.AreaNode, default_open=False):
+        def area_node(node: jma.AreaNode, parent_path: Tuple[jma.AreaNode, ...], default_open=False):
+            path = parent_path + (node,)
             ImGui.TableNextRow()
             # name
             ImGui.TableNextColumn()
             tree_flag = ImGui.ImGuiTreeNodeFlags_.OpenOnArrow | ImGui.ImGuiTreeNodeFlags_.OpenOnDoubleClick | ImGui.ImGuiTreeNodeFlags_.SpanAvailWidth
-            if node.key == last_selected:
+            if path == last_selected:
                 tree_flag |= ImGui.ImGuiTreeNodeFlags_.Selected
             if not node.children:
                 tree_flag |= ImGui.ImGuiTreeNodeFlags_.Leaf
@@ -81,8 +83,8 @@ def area_selector(centers: List[jma.AreaNode], last_selected) -> Optional[str]:
                 ImGui.SetNextTreeNodeOpen(True, ImGui.ImGuiCond_.FirstUseEver)
             open = ImGui.TreeNodeEx(node.name, tree_flag)
             if ImGui.IsItemClicked() and not ImGui.IsItemToggledOpen():
-                selected[0] = node.key
-                logger.debug(f'selected: {node.key}')
+                selected[0] = path
+                logger.debug(f'selected: {selected[0]}')
             # ImGui.SetItemAllowOverlap()
             # key
             ImGui.TableNextColumn()
@@ -90,14 +92,49 @@ def area_selector(centers: List[jma.AreaNode], last_selected) -> Optional[str]:
 
             if open:
                 for child in node.children:
-                    area_node(child)
+                    area_node(child, path)
                 ImGui.TreePop()
 
         for node in centers:
-            area_node(node, True)
+            area_node(node, (), True)
 
         ImGui.EndTable()
     return selected[0]
+
+
+def show_table(table_name, times, headers, data):
+    name = data['area']['name']
+    ImGui.TextUnformatted(f'{name}')
+    flags = (
+        ImGui.ImGuiTableFlags_.BordersV
+        | ImGui.ImGuiTableFlags_.BordersOuterH
+        | ImGui.ImGuiTableFlags_.Resizable
+        | ImGui.ImGuiTableFlags_.RowBg
+        | ImGui.ImGuiTableFlags_.NoBordersInBody
+    )
+    if ImGui.BeginTable(table_name, len(headers)+1, flags):
+        # header
+        ImGui.TableSetupColumn('time')
+        for header in headers:
+            ImGui.TableSetupColumn(header)
+        ImGui.TableHeadersRow()
+
+        # body
+        for i, time in enumerate(times):
+            # row
+            ImGui.TableNextRow()
+            # 0
+            ImGui.TableNextColumn()
+            ImGui.TextUnformatted(f'{time}')
+
+            for header in headers:
+                ImGui.TableNextColumn()
+                value = data.get(header)
+                if value:
+                    # waves 無いとき
+                    ImGui.TextUnformatted(f'{value[i]}')
+
+        ImGui.EndTable()
 
 
 class Gui(dockspace.DockingGui):
@@ -115,8 +152,10 @@ class Gui(dockspace.DockingGui):
                            (ctypes.c_bool * 1)(True), self.select_area),
             dockspace.Dock('times',
                            (ctypes.c_bool * 1)(True), self.select_time),
-            dockspace.Dock('amedas',
-                           (ctypes.c_bool * 1)(True), self.show_amedas),
+            dockspace.Dock('selected',
+                           (ctypes.c_bool * 1)(True), self.show_selected),
+            dockspace.Dock('forecast',
+                           (ctypes.c_bool * 1)(True), self.show_forecast),
         ]
         super().__init__(loop, docks)
 
@@ -127,6 +166,7 @@ class Gui(dockspace.DockingGui):
         self.stable = None
         self.stable_selected = None
         self.amedas = None
+        self.forecast = None
 
         import jma.http_getter
         self.getter = jma.http_getter.HttpGetter(loop, cache_dir)
@@ -154,6 +194,45 @@ class Gui(dockspace.DockingGui):
                 selected = area_selector(self.area, self.area_selected)
                 if selected:
                     self.area_selected = selected
+                    if len(self.area_selected) > 1:
+                        office = self.area_selected[1]
+                        self.loop.create_task(self.get_forecast(office))
+        ImGui.End()
+
+    async def get_forecast(self, office: jma.AreaNode):
+        url = f'https://www.jma.go.jp/bosai/forecast/data/forecast/{office.key}.json'
+        self.forecast = await self.getter.get_json_async(url, use_cache=False)
+
+    def _show_forecast_3day(self, data):
+        times = [datetime.datetime.fromisoformat(
+            t) for t in data['timeDefines']]
+        for area in data['areas']:
+            show_table(f'forecast3', times,
+                       ['weatherCodes', 'weathers', 'winds', 'waves'], area)
+
+    def _show_forecast_rain6(self, data):
+        times = [datetime.datetime.fromisoformat(
+            t) for t in data['timeDefines']]
+        for area in data['areas']:
+            show_table('rain6', times, ['pops'], area)
+
+    def _show_forecast_temperature(self, data):
+        times = [datetime.datetime.fromisoformat(
+            t) for t in data['timeDefines']]
+        for area in data['areas']:
+            show_table('temperature', times, ['temps'], area)
+
+    def show_forecast(self, p_open: ctypes.Array):
+        if ImGui.Begin('forecast', p_open):
+            if self.forecast:
+                latest, week = self.forecast
+                forecast3day, rain6, temperature = latest['timeSeries']
+                self._show_forecast_3day(forecast3day)
+                self._show_forecast_rain6(rain6)
+                self._show_forecast_temperature(temperature)
+                week_forecast, week_temperature = week['timeSeries']
+                temp_average = week['tempAverage']
+                precip_average = week['precipAverage']
         ImGui.End()
 
     def select_time(self, p_open: ctypes.Array):
@@ -171,10 +250,15 @@ class Gui(dockspace.DockingGui):
         url = f'https://www.jma.go.jp/bosai/amedas/data/map/{time.strftime(jma.DATE_FORMAT)}.json'
         self.amedas = await self.getter.get_json_async(url)
 
-    def show_amedas(self, p_open: ctypes.Array):
+    def show_selected(self, p_open: ctypes.Array):
         if ImGui.Begin('amedas', p_open):
-            pass
-            # print(self.amedas)
+            if self.area_selected:
+                ImGui.TextUnformatted(f'center: {self.area_selected[0].name}')
+                if len(self.area_selected) > 1:
+                    ImGui.TextUnformatted(
+                        f'office: {self.area_selected[1].name}')
+            if self.time_selected:
+                ImGui.TextUnformatted(f'{self.times[self.time_selected]}')
         ImGui.End()
 
 

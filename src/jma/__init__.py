@@ -21,6 +21,8 @@ AREA_URL = f'{BASE_URL}/common/const/area.json'
 AMEDAS_STALBE_URL = f'{BASE_URL}/amedas/const/amedastable.json'
 HIMAWARI_TIMES_URL = f'{BASE_URL}/himawari/data/satimg/targetTimes_fd.json'
 
+OVERVIEW_URL = f'{BASE_URL}/forecast/data/overview_forecast/%(office)s.json'
+FORECAST_URL = f'{BASE_URL}/forecast/data/forecast/%(office)s.json'
 
 class AreaNode:
     def __init__(self, key, name) -> None:

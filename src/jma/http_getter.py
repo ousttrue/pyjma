@@ -64,17 +64,23 @@ class HttpGetter:
         self.task_map[url] = get_task
         return task
 
-    async def get_async(self, url: str) -> bytes:
+    async def get_async(self, url: str, *, use_cache=True) -> bytes:
         logger.info(f'get {url} ...')
-        value = self.get_cache(url)
-        if value:
-            return value
+        if use_cache:
+            value = self.get_cache(url)
+            if value:
+                return value
 
-        task = self.task_map.get(url)
-        if not task:
-            task = self.create_task(url)
-        return await task
+        match self.task_map.get(url):
+            case asyncio.Future() as future:
+                return await future
+            case GetTask() as get_task:
+                return await get_task.future
+            case None:
+                return await self.create_task(url)
+            case _:
+                raise RuntimeError()
 
-    async def get_json_async(self, url: str) -> dict:
-        data = await self.get_async(url)
+    async def get_json_async(self, url: str, *, use_cache=True) -> dict:
+        data = await self.get_async(url, use_cache=use_cache)
         return json.loads(data)
