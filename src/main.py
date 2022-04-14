@@ -80,7 +80,7 @@ def area_selector(centers: List[jma.AreaNode], last_selected) -> Optional[Tuple[
                 tree_flag |= ImGui.ImGuiTreeNodeFlags_.Leaf
                 tree_flag |= ImGui.ImGuiTreeNodeFlags_.Bullet
             if default_open:
-                ImGui.SetNextTreeNodeOpen(True, ImGui.ImGuiCond_.FirstUseEver)
+                ImGui.SetNextItemOpen(True, ImGui.ImGuiCond_.FirstUseEver)
             open = ImGui.TreeNodeEx(node.name, tree_flag)
             if ImGui.IsItemClicked() and not ImGui.IsItemToggledOpen():
                 selected[0] = path
@@ -146,18 +146,18 @@ class Gui(dockspace.DockingGui):
         log_handler.register_root()
 
         docks = [
-            dockspace.Dock('log',
-                           (ctypes.c_bool * 1)(True), log_handler.draw),
-            dockspace.Dock('area',
-                           (ctypes.c_bool * 1)(True), self.select_area),
-            dockspace.Dock('times',
-                           (ctypes.c_bool * 1)(True), self.select_time),
-            dockspace.Dock('selected',
-                           (ctypes.c_bool * 1)(True), self.show_selected),
-            dockspace.Dock('forecast',
-                           (ctypes.c_bool * 1)(True), self.show_forecast),
+            dockspace.Dock('log', log_handler.draw,
+                           (ctypes.c_bool * 1)(True)),
+            dockspace.Dock('area', self.select_area,
+                           (ctypes.c_bool * 1)(True)),
+            dockspace.Dock('times', self.select_time,
+                           (ctypes.c_bool * 1)(True)),
+            dockspace.Dock('selected', self.show_selected,
+                           (ctypes.c_bool * 1)(True)),
+            dockspace.Dock('forecast', self.show_forecast,
+                           (ctypes.c_bool * 1)(True)),
         ]
-        super().__init__(loop, docks)
+        super().__init__(loop, docks=docks)
 
         self.times = []
         self.time_selected = None
