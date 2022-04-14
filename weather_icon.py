@@ -31,15 +31,16 @@ def print_range():
 
     keys = sorted(icon_map.keys())
 
-    # last = None
-    # for key in keys:
-    #     if not last or last+1 == key:
-    #         pass
-    #     else:
-    #         print(key, last)
-    #     last = key
-
-    print(f'{keys[0]:x}: {keys[-1]:x}')
+    last = keys[0]
+    start = last
+    for key in keys[1:]:
+        if key!=last+1:
+            print(f'{start:x}, {last+1:x}')
+            start = key
+        else:
+            pass
+        last = key
+    print(f'{start:x}, {last+1:x}')
 
 
 if __name__ == '__main__':

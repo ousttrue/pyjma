@@ -156,6 +156,8 @@ class Gui(dockspace.DockingGui):
                            (ctypes.c_bool * 1)(True)),
             dockspace.Dock('forecast', self.show_forecast,
                            (ctypes.c_bool * 1)(True)),
+            dockspace.Dock('metrics', ImGui.ShowMetricsWindow,
+                           (ctypes.c_bool * 1)(True)),
         ]
         super().__init__(loop, docks=docks)
 
@@ -174,8 +176,40 @@ class Gui(dockspace.DockingGui):
 
     def _setup_font(self):
         io = ImGui.GetIO()
-        io.Fonts.AddFontFromFileTTF(
-            'C:/windows/fonts/msgothic.ttc', 24, None, io.Fonts.GetGlyphRangesJapanese())
+        font_size = 24
+
+        io.Fonts.AddFontFromFileTTF('C:/Windows/Fonts/MSGothic.ttc',
+                                    font_size, None, io.Fonts.GetGlyphRangesJapanese())
+
+        import pkgutil
+        font = pkgutil.get_data(
+            'weather_icons', 'assets/weathericons-regular-webfont.ttf')
+        assert font
+        font_range = [
+            0xf000, 0xf00e,
+            0xf010, 0xf01f,
+            0xf021, 0xf03f,
+            0xf040, 0xf049,
+            0xf04a, 0xf04f,
+            0xf050, 0xf059,
+            0xf062, 0xf06f,
+            0xf070, 0xf07f,
+            0xf080, 0xf0ec,
+            0
+        ]
+        font_range = (ctypes.c_ushort * len(font_range))(*font_range)
+
+        font_cfg = ImGui.ImFontConfig()
+        font_cfg.FontDataOwnedByAtlas = True
+        font_cfg.OversampleH = 3  # FIXME: 2 may be a better default?
+        font_cfg.OversampleV = 1
+        font_cfg.GlyphMaxAdvanceX = 9999
+        font_cfg.RasterizerMultiply = 1.0
+        font_cfg.EllipsisChar = 65535
+        font_cfg.MergeMode = True
+        import weather_icons
+        io.Fonts.AddFontFromFileTTF(str(weather_icons.get_path()), font_size, font_cfg, font_range)
+
         io.Fonts.Build()
 
     async def start_async(self):
@@ -208,7 +242,7 @@ class Gui(dockspace.DockingGui):
             t) for t in data['timeDefines']]
         for area in data['areas']:
             show_table(f'forecast3', times,
-                       ['weatherCodes', 'weathers', 'winds', 'waves'], area)
+                       ['weatherCodes', 'weathers', 'winds \uf058', 'waves'], area)
 
     def _show_forecast_rain6(self, data):
         times = [datetime.datetime.fromisoformat(
