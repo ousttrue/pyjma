@@ -10,6 +10,17 @@
             "request": "launch",
             "program": "${workspaceFolder}/src/main.py",
             "console": "integratedTerminal"
-        }
+        },
+        {
+            "name": "weather_icon",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/weather_icon.py",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}\\src",
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
     ]
 }
